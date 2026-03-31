@@ -60,6 +60,8 @@ class RenderSettings:
     output_height: int | None = None
     text_x: int = 0
     text_y: int = 0
+    graphic_x: int = 0
+    graphic_y: int = 0
     font_family: str = "Segoe UI"
     font_size: int = 48
     font_color: str = "#FFFFFF"

@@ -9,7 +9,14 @@ from PySide6.QtWidgets import QGraphicsPixmapItem, QGraphicsScene, QGraphicsText
 from .models import RenderSettings, TitleEntry, VideoMetadata
 
 
-class DraggableTextItem(QGraphicsTextItem):
+class _SelectableMixin:
+    def _selection_pen(self) -> QPen:
+        pen = QPen(QColor("#00B7FF"), 2)
+        pen.setStyle(Qt.DashLine)
+        return pen
+
+
+class DraggableTextItem(_SelectableMixin, QGraphicsTextItem):
     def __init__(self, text: str, position_callback) -> None:
         super().__init__(text)
         self._position_callback = position_callback
@@ -32,9 +39,46 @@ class DraggableTextItem(QGraphicsTextItem):
             self._position_callback(value)
         return super().itemChange(change, value)
 
+    def paint(self, painter, option, widget=None) -> None:
+        super().paint(painter, option, widget)
+        if self.isSelected():
+            painter.setPen(self._selection_pen())
+            painter.drawRect(self.boundingRect())
+
+
+class DraggableGraphicItem(_SelectableMixin, QGraphicsPixmapItem):
+    def __init__(self, pixmap: QPixmap, position_callback) -> None:
+        super().__init__(pixmap)
+        self._position_callback = position_callback
+        self.setFlag(QGraphicsPixmapItem.ItemIsMovable, True)
+        self.setFlag(QGraphicsPixmapItem.ItemSendsGeometryChanges, True)
+        self.setFlag(QGraphicsPixmapItem.ItemIsSelectable, True)
+        self.setAcceptHoverEvents(True)
+        self.setCursor(Qt.OpenHandCursor)
+
+    def mousePressEvent(self, event) -> None:
+        self.setCursor(Qt.ClosedHandCursor)
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:
+        self.setCursor(Qt.OpenHandCursor)
+        super().mouseReleaseEvent(event)
+
+    def itemChange(self, change, value):
+        if change == QGraphicsPixmapItem.ItemPositionHasChanged and self._position_callback:
+            self._position_callback(value)
+        return super().itemChange(change, value)
+
+    def paint(self, painter, option, widget=None) -> None:
+        super().paint(painter, option, widget)
+        if self.isSelected():
+            painter.setPen(self._selection_pen())
+            painter.drawRect(self.boundingRect())
+
 
 class PreviewView(QGraphicsView):
     text_position_changed = Signal(int, int)
+    graphic_position_changed = Signal(int, int)
 
     def __init__(self) -> None:
         super().__init__()
@@ -55,10 +99,11 @@ class PreviewView(QGraphicsView):
         message.setPos(90, 330)
         self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
 
-    def _emit_dragged_position(self, value) -> None:
-        x = max(0, int(round(value.x())))
-        y = max(0, int(round(value.y())))
-        self.text_position_changed.emit(x, y)
+    def _emit_dragged_text_position(self, value) -> None:
+        self.text_position_changed.emit(max(0, int(round(value.x()))), max(0, int(round(value.y()))))
+
+    def _emit_dragged_graphic_position(self, value) -> None:
+        self.graphic_position_changed.emit(max(0, int(round(value.x()))), max(0, int(round(value.y()))))
 
     def update_preview(
         self,
@@ -83,21 +128,19 @@ class PreviewView(QGraphicsView):
             frame_pixmap = frame_pixmap.scaled(metadata.width, metadata.height, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
         self._scene.addItem(QGraphicsPixmapItem(frame_pixmap))
 
-        if graphic_path and Path(graphic_path).exists():
+        if graphic_path and Path(graphic_path).exists() and settings:
             graphic = QPixmap(graphic_path)
             if not graphic.isNull():
-                item = QGraphicsPixmapItem(graphic)
+                item = DraggableGraphicItem(graphic, self._emit_dragged_graphic_position)
                 x_scale = metadata.width / max(1, frame_pixmap.width())
                 y_scale = metadata.height / max(1, frame_pixmap.height())
                 if x_scale != 1.0 or y_scale != 1.0:
                     item.setScale(min(x_scale, y_scale))
-                x = (metadata.width - item.boundingRect().width() * item.scale()) / 2
-                y = metadata.height - item.boundingRect().height() * item.scale() - max(12, round(metadata.height * 0.05))
-                item.setPos(x, y)
+                item.setPos(settings.graphic_x, settings.graphic_y)
                 self._scene.addItem(item)
 
         if entry and entry.text.strip() and settings:
-            text_item = DraggableTextItem(entry.text, self._emit_dragged_position)
+            text_item = DraggableTextItem(entry.text, self._emit_dragged_text_position)
             font = QFont(settings.font_family, settings.font_size)
             font.setBold(settings.bold)
             font.setItalic(settings.italic)

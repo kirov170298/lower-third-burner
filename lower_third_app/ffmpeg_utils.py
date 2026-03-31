@@ -384,9 +384,8 @@ def build_filter_complex(
             )
         filters.append(f"[1:v]{','.join(graphic_steps)}[gbase]")
 
-    bottom_margin = max(12, round(36 * target_metadata.height / max(1, source_metadata.height)))
-    graphic_x = "(main_w-overlay_w)/2"
-    graphic_y = f"main_h-overlay_h-{bottom_margin}"
+    graphic_x = str(settings.graphic_x)
+    graphic_y = str(settings.graphic_y)
     text_color = _to_ffmpeg_color(settings.font_color)
     border_color = _to_ffmpeg_color("#000000")
     font = font_path.replace("\\", "/").replace(":", r"\:")

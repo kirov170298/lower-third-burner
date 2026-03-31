@@ -112,6 +112,8 @@ class MainWindow(QMainWindow):
         self._default_second_offset_seconds = 10.0
         self._default_second_duration_seconds = 5.0
         self._font_color = "#FFFFFF"
+        self._graphic_x = 0
+        self._graphic_y = 0
         self._export_thread: QThread | None = None
         self._export_worker: ExportWorker | None = None
         self._project_path: Path | None = None
@@ -139,6 +141,7 @@ class MainWindow(QMainWindow):
 
         self.preview = PreviewView()
         self.preview.text_position_changed.connect(self._on_preview_text_dragged)
+        self.preview.graphic_position_changed.connect(self._on_preview_graphic_dragged)
         self.entry_list = QListWidget()
         self.entry_list.currentRowChanged.connect(self._on_entry_selected)
 
@@ -507,6 +510,8 @@ class MainWindow(QMainWindow):
             "outline_size": self.outline_spin.value(),
             "text_x": self.position_x_spin.value(),
             "text_y": self.position_y_spin.value(),
+            "graphic_x": self._graphic_x,
+            "graphic_y": self._graphic_y,
             "fade_in_seconds": self.fade_in_spin.value(),
             "fade_out_seconds": self.fade_out_spin.value(),
             "entries": [
@@ -560,6 +565,11 @@ class MainWindow(QMainWindow):
             self.outline_spin.setValue(int(payload.get("outline_size") or 2))
             self.position_x_spin.setValue(int(payload.get("text_x") or 0))
             self.position_y_spin.setValue(int(payload.get("text_y") or 0))
+            if "graphic_x" in payload or "graphic_y" in payload:
+                self._graphic_x = int(payload.get("graphic_x") or 0)
+                self._graphic_y = int(payload.get("graphic_y") or 0)
+            else:
+                self._set_default_graphic_position()
             self.fade_in_spin.setValue(float(payload.get("fade_in_seconds") or 0.5))
             self.fade_out_spin.setValue(float(payload.get("fade_out_seconds") or 0.5))
 
@@ -605,6 +615,8 @@ class MainWindow(QMainWindow):
         self.export_dir_edit.clear()
         self.entry_list.clear()
         self.text_edit.clear()
+        self._graphic_x = 0
+        self._graphic_y = 0
         self.preview.update_preview(None, None, None, None, self._current_render_settings())
 
     def _confirm_discard_changes(self) -> bool:
@@ -703,6 +715,8 @@ class MainWindow(QMainWindow):
         self._update_resolution_options()
         self._set_default_entry_times()
         self._set_default_text_position()
+        if not self._loading_project:
+            self._set_default_graphic_position()
         if show_message:
             self.status_bar.showMessage(
                 f"Loaded video: {metadata.width}x{metadata.height}, duration {metadata.duration_seconds:.2f}s",
@@ -761,6 +775,8 @@ class MainWindow(QMainWindow):
             output_height=resolution[1] if resolution else None,
             text_x=self.position_x_spin.value(),
             text_y=self.position_y_spin.value(),
+            graphic_x=self._graphic_x,
+            graphic_y=self._graphic_y,
             font_family=self.font_family_combo.currentFont().family(),
             font_size=self.font_size_spin.value(),
             font_color=self._font_color,
@@ -813,6 +829,20 @@ class MainWindow(QMainWindow):
         self._syncing_preview_position = False
         self._update_position_ranges()
 
+    def _set_default_graphic_position(self) -> None:
+        metadata = self._preview_metadata()
+        if not metadata or not self.graphic_path:
+            return
+        from PySide6.QtGui import QPixmap
+
+        graphic = QPixmap(self.graphic_path)
+        if graphic.isNull():
+            return
+        x = (metadata.width - graphic.width()) // 2
+        y = metadata.height - graphic.height() - max(12, round(metadata.height * 0.05))
+        self._graphic_x = max(0, x)
+        self._graphic_y = max(0, y)
+
     def _update_position_ranges(self) -> None:
         metadata = self._preview_metadata()
         if not metadata:
@@ -848,6 +878,11 @@ class MainWindow(QMainWindow):
         self._syncing_preview_position = False
         self._set_project_dirty(True)
 
+    def _on_preview_graphic_dragged(self, x: int, y: int) -> None:
+        self._graphic_x = x
+        self._graphic_y = y
+        self._set_project_dirty(True)
+
     def _last_video_import_directory(self) -> str:
         stored = self.settings_store.value("video_import_directory", "", type=str)
         if stored and Path(stored).exists():
@@ -879,6 +914,7 @@ class MainWindow(QMainWindow):
             return
         self.graphic_path = file_path
         self.graphic_path_edit.setText(file_path)
+        self._set_default_graphic_position()
         self.status_bar.showMessage("Optional PNG overlay loaded.", 4000)
         self._update_preview_overlay()
         self._set_project_dirty(True)
